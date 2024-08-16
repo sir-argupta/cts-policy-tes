@@ -1,0 +1,74 @@
+definitions:
+  domain.Policy:
+    properties:
+      company:
+        type: string
+      duration_years:
+        type: integer
+      id:
+        type: string
+      initial_deposit:
+        type: number
+      interest:
+        type: number
+      name:
+        type: string
+      start_date:
+        type: string
+      term_amount:
+        type: number
+      terms_per_year:
+        type: integer
+      type:
+        type: string
+      user_types:
+        items:
+          type: string
+        type: array
+    type: object
+info:
+  contact: {}
+paths:
+  /api/v1/policies/search:
+    get:
+      consumes:
+      - application/json
+      description: Search policies based on various criteria
+      parameters:
+      - description: Policy Type
+        in: query
+        name: type
+        type: string
+      - description: Company Name
+        in: query
+        name: company
+        type: string
+      - description: Policy Id
+        in: query
+        name: id
+        type: string
+      - description: Policy Name
+        in: query
+        name: name
+        type: string
+      - description: Number of Years
+        in: query
+        name: years
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.Policy'
+            type: array
+        "404":
+          description: No policies found
+          schema:
+            type: string
+      summary: Search policies
+      tags:
+      - policies
+swagger: "2.0"
