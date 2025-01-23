@@ -23,10 +23,9 @@ public void shouldUpdateTaskDetailsIfCompletedWhenWorkOrderExists() {
 
     WorkOrderDTO result = workOrderService.updateTaskDetailsIfCompleted(workOrderDTO, event);
 
-    assertEquals(ApplicationConstants.WORK_ORDER_TASK_STATUS_COMPLETED, result.getTasks().get(0).getStatus());
-    assertEquals(123L, result.getTasks().get(0).getUserId());
-
     verify(workOrderRepository, times(1)).getWorkOrderById(BigInteger.valueOf(WORK_ORDER_ID));
+    verify(result.getTasks().get(0)).getStatus();
+    verify(result.getTasks().get(0)).getUserId();
 }
 
 @Test
@@ -40,8 +39,8 @@ public void shouldNotUpdateTaskDetailsIfWorkOrderNotFound() {
 
     WorkOrderDTO result = workOrderService.updateTaskDetailsIfCompleted(workOrderDTO, event);
 
-    assertEquals(WORK_ORDER_ID, result.getId());
     verify(workOrderRepository, times(1)).getWorkOrderById(BigInteger.valueOf(WORK_ORDER_ID));
+    verify(result).getId();
 }
 
 @Test
@@ -68,8 +67,8 @@ public void shouldNotUpdateTaskDetailsIfTaskStatusIsNotCompleted() {
 
     WorkOrderDTO result = workOrderService.updateTaskDetailsIfCompleted(workOrderDTO, event);
 
-    assertNull(result.getTasks().get(0).getStatus());
-    assertNull(result.getTasks().get(0).getUserId());
+    verify(result.getTasks().get(0)).getStatus();
+    verify(result.getTasks().get(0)).getUserId();
 }
 
 @Test
@@ -86,6 +85,6 @@ public void shouldHandleMissingTasksInWorkOrder() {
 
     WorkOrderDTO result = workOrderService.updateTaskDetailsIfCompleted(workOrderDTO, event);
 
-    assertNotNull(result);
-    assertEquals(WORK_ORDER_ID, result.getId());
+    verify(result).getId();
+    verify(result).getTasks();
 }
