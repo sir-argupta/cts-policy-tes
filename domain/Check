@@ -1,1 +1,68 @@
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
+@Configuration
+public class FilterConfig {
+
+    @Bean
+    public FilterRegistrationBean<CustomExceptionFilter> customExceptionFilter() {
+        FilterRegistrationBean<CustomExceptionFilter> registrationBean = new FilterRegistrationBean<>();
+        registrationBean.setFilter(new CustomExceptionFilter());
+        registrationBean.addUrlPatterns("/*"); // Apply to all URLs
+        registrationBean.setOrder(1); // Make sure it runs early in the filter chain
+        return registrationBean;
+    }
+}
+
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.util.ContentCachingResponseWrapper;
+
+import javax.servlet.*;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+
+public class CustomExceptionFilter implements Filter {
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        ContentCachingResponseWrapper responseWrapper = new ContentCachingResponseWrapper((HttpServletResponse) response);
+        
+        // Proceed with the filter chain (i.e., allow other filters and controllers to process the request)
+        chain.doFilter(request, responseWrapper);
+        
+        // Check if the response status indicates an error (e.g., 400 or 500)
+        if (responseWrapper.getStatus() == HttpStatus.BAD_REQUEST.value() || responseWrapper.getStatus() == HttpStatus.INTERNAL_SERVER_ERROR.value()) {
+            // Modify the response body for error status codes
+            modifyErrorResponse(request, responseWrapper);
+        }
+        
+        // Send the modified response back to the client
+        responseWrapper.copyBodyToResponse();
+    }
+
+    private void modifyErrorResponse(HttpServletRequest request, ContentCachingResponseWrapper responseWrapper) throws IOException {
+        String responseBody = new String(responseWrapper.getContentAsByteArray());
+
+        // Create the new error response format
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("message", "An error occurred"); // Default message
+        errorResponse.put("timestamp", Instant.now().toString());
+        errorResponse.put("path", request.getRequestURI());
+        errorResponse.put("statusCode", responseWrapper.getStatus());
+
+        // Modify the response body to use the new format
+        responseWrapper.setStatus(HttpStatus.BAD_REQUEST.value());
+        responseWrapper.setContentType("application/json");
+        responseWrapper.getWriter().write(objectMapper.writeValueAsString(errorResponse));
+    }
+}
