@@ -1,29 +1,83 @@
-@Test
-void testModifyErrorResponse_GeneratesCorrectJson() throws IOException {
-    ContentCachingResponseWrapper responseWrapper = new ContentCachingResponseWrapper(response);
-    StringWriter stringWriter = new StringWriter();
-    PrintWriter writer = new PrintWriter(stringWriter);
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.mock.web.MockFilterChain;
+import org.springframework.web.util.ContentCachingResponseWrapper;
 
-    // 🛠 Ensure response writer is properly mocked
-    when(response.getWriter()).thenReturn(writer);
-    when(request.getRequestURI()).thenReturn("/test/endpoint");
+import javax.servlet.FilterChain;
+import javax.servlet.ServletException;
+import javax.servlet.ServletResponse;
+import javax.servlet.ServletRequest;
+import java.io.IOException;
 
-    // 🛠 Call modifyErrorResponse with a custom message
-    exceptionFilter.modifyErrorResponse(request, responseWrapper, "Custom error message");
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
-    // 🛠 Ensure the response is flushed so data is written
-    writer.flush();
+@ExtendWith(MockitoExtension.class)
+class ExceptionFilterTest {
 
-    // ✅ Capture and validate the response
-    String jsonResponse = stringWriter.toString();
-    assertFalse(jsonResponse.isEmpty(), "Response should not be empty");
+    @Mock
+    private ObjectMapper objectMapper;
 
-    // ✅ Ensure JSON is properly formatted
-    Map<String, Object> jsonMap = objectMapper.readValue(jsonResponse, HashMap.class);
+    @InjectMocks
+    private ExceptionFilter exceptionFilter;
 
-    // ✅ Assertions to verify correctness
-    assertEquals("Custom error message", jsonMap.get("error"));
-    assertEquals("/test/endpoint", jsonMap.get("path"));
-    assertNotNull(jsonMap.get("timestamp"));
-    assertNotNull(jsonMap.get("status"));
+    private MockHttpServletRequest request;
+    private MockHttpServletResponse response;
+    private MockFilterChain filterChain;
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+        request = new MockHttpServletRequest();
+        response = new MockHttpServletResponse();
+        filterChain = new MockFilterChain();
+    }
+
+    @Test
+    void testDoFilter_ModifiesErrorResponse() throws IOException, ServletException {
+        // Mock response wrapper
+        ContentCachingResponseWrapper responseWrapper = spy(new ContentCachingResponseWrapper(response));
+        responseWrapper.setStatus(HttpStatus.BAD_REQUEST.value());
+        responseWrapper.getWriter().write("{\"type\":\"about:blank\", \"detail\":\"Some error occurred\"}");
+        responseWrapper.getWriter().flush();
+
+        // Mock objectMapper behavior
+        JsonNode mockJsonNode = mock(JsonNode.class);
+        when(mockJsonNode.get("detail")).thenReturn(mock(JsonNode.class));
+        when(mockJsonNode.get("detail").asText()).thenReturn("Some error occurred");
+        when(objectMapper.readTree(anyString())).thenReturn(mockJsonNode);
+
+        // Execute filter
+        exceptionFilter.doFilter(request, responseWrapper, filterChain);
+
+        // Verify response modification
+        assertEquals(HttpStatus.BAD_REQUEST.value(), responseWrapper.getStatus());
+        assertEquals("application/json", responseWrapper.getContentType());
+
+        String modifiedResponse = responseWrapper.getContentAsString();
+        assertTrue(modifiedResponse.contains("\"error\":\"Some error occurred\""));
+        assertTrue(modifiedResponse.contains("\"status\":400"));
+    }
+
+    @Test
+    void testContainsAboutBlankType_ReturnsTrue() {
+        String responseBody = "{\"type\":\"about:blank\", \"detail\":\"Error message\"}";
+        assertTrue(exceptionFilter.containsAboutBlankType(responseBody));
+    }
+
+    @Test
+    void testContainsAboutBlankType_ReturnsFalse() {
+        String responseBody = "{\"type\":\"custom:error\", \"detail\":\"Error message\"}";
+        assertFalse(exceptionFilter.containsAboutBlankType(responseBody));
+    }
 }
