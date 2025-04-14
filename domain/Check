@@ -1,1 +1,82 @@
+describe('Utility Functions', () => {
+  describe('flattenUpdatedFields', () => {
+    it('should flatten top-level fields', () => {
+      const obj = {
+        totalCost: 100,
+        totalLaborCost: 50,
+      };
+      const result = sut.flattenUpdatedFields(obj);
+      expect(result).to.have.members(['totalCost', 'totalLaborCost']);
+    });
 
+    it('should flatten nested fields with dot notation', () => {
+      const obj = {
+        workOrderCompletionRecord: {
+          modificationTime: '2025-04-14T12:00:00Z'
+        }
+      };
+      const result = sut.flattenUpdatedFields(obj);
+      expect(result).to.include('workOrderCompletionRecord.modificationTime');
+    });
+
+    it('should include empty nested objects', () => {
+      const obj = {
+        workOrderCompletionRecord: {}
+      };
+      const result = sut.flattenUpdatedFields(obj);
+      expect(result).to.include('workOrderCompletionRecord');
+    });
+
+    it('should include Date instances as primitives', () => {
+      const obj = {
+        completedAt: new Date()
+      };
+      const result = sut.flattenUpdatedFields(obj);
+      expect(result).to.include('completedAt');
+    });
+
+    it('should handle deep nesting', () => {
+      const obj = {
+        a: {
+          b: {
+            c: {
+              d: 42
+            }
+          }
+        }
+      };
+      const result = sut.flattenUpdatedFields(obj);
+      expect(result).to.include('a.b.c.d');
+    });
+  });
+
+  describe('deleteByPath', () => {
+    it('should delete top-level field', () => {
+      const obj = { totalCost: 100 };
+      sut.deleteByPath(obj, 'totalCost');
+      expect(obj).to.not.have.property('totalCost');
+    });
+
+    it('should delete nested field', () => {
+      const obj = {
+        workOrderCompletionRecord: {
+          modificationTime: '2025-04-14'
+        }
+      };
+      sut.deleteByPath(obj, 'workOrderCompletionRecord.modificationTime');
+      expect(obj.workOrderCompletionRecord).to.not.have.property('modificationTime');
+    });
+
+    it('should do nothing if path does not exist', () => {
+      const obj = {
+        x: {
+          y: {
+            z: 1
+          }
+        }
+      };
+      sut.deleteByPath(obj, 'x.y.nonexistent');
+      expect(obj.x.y).to.have.property('z');
+    });
+  });
+});
