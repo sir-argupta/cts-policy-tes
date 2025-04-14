@@ -1,249 +1,40 @@
-import { getInterval, saveIntervalToPlatform } from '../services/intervals';
-import { getCurrencyCode, addCommentId } from '../utility/interval-helper';
+function flattenUpdatedFields(obj) {
+  const paths = [];
 
-// Helper to get nested value by path like 'a.b.c'
-function getValueByPath(obj, path) {
-  return path.split('.').reduce((acc, key) => acc?.[key], obj);
-}
+  function recurse(current, parentKey = '') {
+    for (const key in current) {
+      if (!Object.prototype.hasOwnProperty.call(current, key)) continue;
 
-// Helper to delete nested key by path
-function deleteByPath(obj, path) {
-  const keys = path.split('.');
-  const lastKey = keys.pop();
-  const parent = keys.reduce((acc, key) => acc?.[key], obj);
-  if (parent && lastKey in parent) {
-    delete parent[lastKey];
+      const value = current[key];
+
+      const isPrimitive =
+        value === null ||
+        typeof value !== 'object' ||
+        value instanceof Date;
+
+      if (isPrimitive) {
+        paths.push(key); // only collect field name, not full path
+      } else if (typeof value === 'object' && Object.keys(value).length === 0) {
+        paths.push(key); // empty object still considered updated
+      } else {
+        recurse(value, key);
+      }
+    }
   }
-}
 
-export const actions = {
-  INTERVAL_SELECTED: 'INTERVAL_SELECTED',
-  INTERVAL_CLEARED: 'INTERVAL_CLEARED'
-};
-
-export const mountPoint = 'selectedInterval';
-
-export const initialState = {
-  isError: false,
-  isLoading: true,
-  intervalSaved: false,
-  showSaveMessage: false,
-  intervalCompleted: false,
-  workOrder: {
-    workOrderComments: [],
-    workOrderCompletionRecord: {},
-    workOrderTasks: []
-  },
-  updatedFields: []
-};
-
-export function completeInterval(adjustData) {
-  return async (dispatch, getState) => {
-    const state = getState();
-
-    dispatch(updateInterval({
-      workOrder: {
-        completed: true,
-        adjustedByHours: adjustData.adjustedByHours,
-        adjustedEngineHourInterval: adjustData.adjustedEngineHourInterval,
-        adjustType: adjustData.adjustType,
-        workOrderCompletionRecord: {
-          completedByUserId: state.session.id,
-          completedByUserName: state.session.id,
-          userFullName: state.session.fullName
-        },
-        currency: getCurrencyCode(state.selectedInterval, state.selectedOrg),
-        currentEngineHours: !state.selectedInterval.workOrder.currentEngineHours &&
-                            state.selectedInterval.workOrder.displayEngineHours
-                              ? state.selectedMachine?.lastKnownEngineHours
-                              : state.selectedInterval.workOrder.currentEngineHours
-      }
-    }));
-
-    addCommentId(state);
-    
-    try {
-      await dispatch(saveInterval());
-      dispatch({
-        data: {
-          isLoading: false,
-          showCompleteMessage: true,
-          intervalCompleted: true,
-        },
-        type: actions.INTERVAL_SELECTED
-      });
-    } catch (err) {
-      dispatch({
-        data: {
-          isError: true,
-          isLoading: false,
-          showCompleteMessage: false,
-          intervalCompleted: true,
-        },
-        type: actions.INTERVAL_SELECTED
-      });
-    }
-  };
-}
-
-export function saveInterval() {
-  return async (dispatch, getState) => {
-    const state = getState();
-    const { workOrder, updatedFields } = state.selectedInterval;
-    const currencyCode = getCurrencyCode(state.selectedInterval, state.selectedOrg);
-
-    addCommentId(state);
-    workOrder.currency = currencyCode;
-
-    // Only remove fields that are updated AND in this list
-    const removableKeys = [
-      'totalLaborCost',
-      'totalPartCost',
-      'totalCost',
-      'workorderCompletionRecord.modificationTime'
-    ];
-
-    for (const key of updatedFields) {
-      if (removableKeys.includes(key)) {
-        const val = getValueByPath(workOrder, key);
-        const isEmpty =
-          val === null ||
-          val === undefined ||
-          val === '' ||
-          val === 0 ||
-          (typeof val === 'object' && Object.keys(val).length === 0);
-
-        if (isEmpty) {
-          deleteByPath(workOrder, key);
-        }
-      }
-    }
-
-    try {
-      await saveIntervalToPlatform({ workOrder });
-      dispatch({
-        data: {
-          isLoading: false,
-          showSaveMessage: true,
-          intervalSaved: true,
-          updatedFields: []
-        },
-        type: actions.INTERVAL_SELECTED
-      });
-    } catch (err) {
-      dispatch({
-        data: {
-          isError: true,
-          isLoading: false,
-          showSaveMessage: false,
-          intervalSaved: false
-        },
-        type: actions.INTERVAL_SELECTED
-      });
-    }
-  };
-}
-
-export function resetSelectedIntervalStates() {
-  return async (dispatch, getState) => {
-    const state = getState();
-    dispatch({
-      data: {
-        ...state.selectedInterval,
-        isLoading: false,
-        showSaveMessage: false,
-        intervalSaved: false,
-        updatedFields: []
-      },
-      type: actions.INTERVAL_SELECTED
-    });
-  };
+  recurse(obj);
+  return paths;
 }
 
 export function updateInterval(updatedIntervalData) {
+  const updatedWorkOrder = updatedIntervalData?.workOrder ?? {};
+  const updatedFields = flattenUpdatedFields(updatedWorkOrder);
+
   return {
     data: {
       ...updatedIntervalData,
-      updatedFields: Object.keys(updatedIntervalData.workOrder || {})
+      updatedFields
     },
     type: actions.INTERVAL_SELECTED
   };
-}
-
-export function setSelectedInterval(planId, intervalId) {
-  return async (dispatch, getState) => {
-    if (!planId || !intervalId) return;
-
-    dispatch({
-      data: {
-        id: intervalId,
-        isLoading: true
-      },
-      type: actions.INTERVAL_SELECTED
-    });
-
-    try {
-      const intervalDataObject = await getInterval(planId, intervalId);
-      intervalDataObject.workOrder.workOrderComments.forEach((obj, index) => {
-        obj.commentId = index + 1;
-      });
-
-      const state = getState();
-
-      if (intervalDataObject.workOrder.hasOwnProperty('displayEngineHours')) {
-        delete state.selectedInterval.workOrder.displayEngineHours;
-      }
-      if (intervalDataObject.workOrder.hasOwnProperty('currentEngineHours')) {
-        delete state.selectedInterval.workOrder.currentEngineHours;
-      }
-
-      dispatch({
-        data: {
-          ...intervalDataObject,
-          isLoading: false,
-          showSaveMessage: state.selectedInterval.showSaveMessage,
-          updatedFields: []
-        },
-        type: actions.INTERVAL_SELECTED
-      });
-    } catch (err) {
-      dispatch({
-        data: {
-          isError: true,
-          isLoading: false
-        },
-        type: actions.INTERVAL_SELECTED
-      });
-    }
-  };
-}
-
-export function clearSelectedInterval() {
-  return {
-    type: actions.INTERVAL_CLEARED
-  };
-}
-
-export function reducer(state = initialState, action) {
-  switch (action.type) {
-    case actions.INTERVAL_SELECTED: {
-      return {
-        ...state,
-        ...action.data,
-        workOrder: {
-          ...state.workOrder,
-          ...action.data.workOrder,
-          workOrderCompletionRecord: {
-            ...state.workOrder?.workOrderCompletionRecord,
-            ...action.data.workOrder?.workOrderCompletionRecord
-          }
-        }
-      };
-    }
-    case actions.INTERVAL_CLEARED: {
-      return initialState;
-    }
-    default:
-      return state;
-  }
 }
