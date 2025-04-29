@@ -1,1 +1,65 @@
+describe('handleFileDelete', () => {
+    it('should dispatch success flow when file deletion succeeds', async () => {
+        const fileId = chance.natural();
+        const id = chance.natural();
+        
+        // Stub deleteFileForInterval to return 'success'
+        sinon.stub(intervalService, 'deleteFileForInterval').resolves('success');
+        // Stub getInterval to return a fake updated interval
+        const updatedInterval = {
+            workOrder: {
+                maintenanceFiles: [chance.word()]
+            }
+        };
+        sinon.stub(intervalService, 'getInterval').resolves(updatedInterval);
 
+        await sut.handleFileDelete(fileId, id)(dispatchStub, getStateStub);
+
+        sinon.assert.calledWith(dispatchStub, {
+            data: {
+                isLoading: true,
+                isError: false,
+            },
+            type: actions.HANDLE_FILE_DELETE,
+        });
+
+        sinon.assert.calledWith(dispatchStub, {
+            data: {
+                isLoading: false,
+                isError: false,
+            },
+            type: actions.HANDLE_FILE_DELETE,
+        });
+
+        intervalService.deleteFileForInterval.restore();
+        intervalService.getInterval.restore();
+    });
+
+    it('should dispatch error flow when file deletion fails', async () => {
+        const fileId = chance.natural();
+        const id = chance.natural();
+        
+        // Stub deleteFileForInterval to return anything but 'success'
+        sinon.stub(intervalService, 'deleteFileForInterval').resolves('error');
+
+        await sut.handleFileDelete(fileId, id)(dispatchStub, getStateStub);
+
+        sinon.assert.calledWith(dispatchStub, {
+            data: {
+                isLoading: true,
+                isError: false,
+            },
+            type: actions.HANDLE_FILE_DELETE,
+        });
+
+        sinon.assert.calledWith(dispatchStub, {
+            data: {
+                isLoading: false,
+                isError: true,
+            },
+            type: actions.HANDLE_FILE_DELETE,
+        });
+
+        intervalService.deleteFileForInterval.restore();
+    });
+});
