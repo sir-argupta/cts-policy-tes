@@ -1,1 +1,134 @@
+public void deleteItemsBeforeDate(String cutoffDateString) {
+    LocalDate cutoffDate = LocalDate.parse(cutoffDateString);
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
+    Map<String, AttributeValue> eav = new HashMap<>();
+    eav.put(":error_prefix", AttributeValue.builder().s("Product").build());
+    eav.put(":error_prefix1", AttributeValue.builder().s("BMC API Response is empty").build());
+    eav.put(":error_prefix2", AttributeValue.builder().s("check eligibility api").build());
+    eav.put(":error_prefix3", AttributeValue.builder().s("Manual").build());
+
+    Expression filterExpression = Expression.builder()
+        .expression("contains(error_description, :error_prefix) OR " +
+                    "contains(error_description, :error_prefix1) OR " +
+                    "contains(error_description, :error_prefix2) OR " +
+                    "contains(error_description, :error_prefix3)")
+        .expressionValues(eav)
+        .build();
+
+    ScanEnhancedRequest scanRequest = ScanEnhancedRequest.builder()
+        .filterExpression(filterExpression)
+        .build();
+
+    List<WriteRequest> writeRequests = new ArrayList<>();
+
+    Iterator<Page<Map<String, AttributeValue>>> pages = failuresTable.scan(scanRequest, Map.class).iterator();
+    while (pages.hasNext()) {
+        for (Map<String, AttributeValue> item : pages.next().items()) {
+            if (item.containsKey("crtd_ts") && item.get("crtd_ts") != null) {
+                String dateString = item.get("crtd_ts").s();
+                LocalDate recordDate = LocalDate.parse(dateString.substring(0, 10), formatter);
+                if (recordDate.isBefore(cutoffDate)) {
+                    if (item.containsKey("machine_id") && item.get("machine_id") != null) {
+                        Map<String, AttributeValue> key = new HashMap<>();
+                        key.put("machine_id", item.get("machine_id"));
+
+                        DeleteRequest deleteRequest = DeleteRequest.builder().key(key).build();
+                        writeRequests.add(WriteRequest.builder().deleteRequest(deleteRequest).build());
+
+                        logger.info("Preparing to delete item with machine_id: {}, item: {}", item.get("machine_id"), item);
+                    } else {
+                        logger.info("Missing machine_id for item: {}", item);
+                    }
+                }
+            } else {
+                logger.info("Missing crtd_ts for item: {}", item);
+            }
+        }
+    }
+
+    if (!writeRequests.isEmpty()) {
+        deleteInBatches(writeRequests);
+    } else {
+        logger.info("No items to delete.");
+    }
+}
+
+private void deleteInBatches(List<WriteRequest> writeRequests) {
+    for (int i = 0; i < writeRequests.size(); i += 25) {
+        List<WriteRequest> batch = writeRequests.subList(i, Math.min(i + 25, writeRequests.size()));
+        Map<String, List<WriteRequest>> requestMap = new HashMap<>();
+        requestMap.put(GenericConstant.MAINTENANCE_ENROLLMENT_FAILURES, batch);
+
+        BatchWriteItemRequest batchWriteItemRequest = BatchWriteItemRequest.builder()
+            .requestItems(requestMap)
+            .build();
+
+        client.batchWriteItem(batchWriteItemRequest);
+        logger.info("Deleted items in batch: {}", batch.size());
+    }
+}
+
+public List<FailedPinInformation> fetchErrorData(String serviceName) {
+    Map<String, AttributeValue> eav = new HashMap<>();
+    ScanEnhancedRequest scanRequest;
+
+    if (serviceName.equalsIgnoreCase("PilotA")) {
+        eav.put(":error_prefix", AttributeValue.builder().s("Product").build());
+        scanRequest = ScanEnhancedRequest.builder()
+            .filterExpression(Expression.builder()
+                .expression("contains(error_description, :error_prefix)")
+                .expressionValues(eav)
+                .build())
+            .build();
+    } else {
+        eav.put(":error_prefix1", AttributeValue.builder().s("BMC API Response is empty").build());
+        eav.put(":error_prefix2", AttributeValue.builder().s("check eligibility api").build());
+        eav.put(":error_prefix3", AttributeValue.builder().s("Manual").build());
+
+        scanRequest = ScanEnhancedRequest.builder()
+            .filterExpression(Expression.builder()
+                .expression("contains(error_description, :error_prefix1) OR " +
+                            "contains(error_description, :error_prefix2) OR " +
+                            "contains(error_description, :error_prefix3)")
+                .expressionValues(eav)
+                .build())
+            .build();
+    }
+
+    List<FailedPinInformation> errorDataList = new ArrayList<>();
+    Map<String, AttributeValue> lastKey = null;
+
+    do {
+        if (lastKey != null) {
+            scanRequest = scanRequest.toBuilder().exclusiveStartKey(lastKey).build();
+        }
+
+        Iterator<Page<Map<String, AttributeValue>>> pages = failuresTable.scan(scanRequest, Map.class).iterator();
+        while (pages.hasNext()) {
+            for (Map<String, AttributeValue> item : pages.next().items()) {
+                Optional<Integer> machineIdOptional = Optional.ofNullable(item.get("machine_id")).map(a -> Integer.parseInt(a.n()));
+                Optional<String> bmcOptional = Optional.ofNullable(item.get("bmc")).map(AttributeValue::s);
+                Optional<Integer> masterIdOptional = Optional.ofNullable(item.get("master_id")).map(a -> Integer.parseInt(a.n()));
+                Optional<Integer> orgIdOptional = Optional.ofNullable(item.get("org_id")).map(a -> Integer.parseInt(a.n()));
+                Optional<String> serialNumberOptional = Optional.ofNullable(item.get("serial_number")).map(AttributeValue::s);
+                Optional<String> errorDescriptionOptional = Optional.ofNullable(item.get("error_description")).map(AttributeValue::s);
+
+                errorDataList.add(new FailedPinInformation(
+                    machineIdOptional.orElse(0),
+                    bmcOptional.orElse(""),
+                    masterIdOptional.orElse(0),
+                    orgIdOptional.orElse(0),
+                    serialNumberOptional.orElse(""),
+                    errorDescriptionOptional.orElse("")
+                ));
+            }
+        }
+
+        lastKey = pages.hasNext() ? pages.next().lastEvaluatedKey() : null;
+
+    } while (lastKey != null);
+
+    logger.info("Failed Data retrieved successfully from DB.");
+    return errorDataList;
+}
