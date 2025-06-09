@@ -1,93 +1,103 @@
-import { expect } from 'chai';
-import sinon from 'sinon';
-import jwt_decode from 'jwt-decode';
-import * as uuid from 'uuid';
-import * as oktaBroker from '../brokers/okta-broker'; // adjust path if needed
+const crypto = require('crypto');
 
-import {
-  stripEmailFromUserContents,
-  extractUsernameFromToken,
-  buildUserInfoFromTokenExchange,
-  getUserInfoThroughTokenExchange
-} from '../../src/services/session-service.js'; // adjust path as necessary
+// Step 1: Define Header and Payload
+const header = {
+  alg: "HS256",
+  typ: "JWT"
+};
 
-describe('session-service.js', () => {
+const payload = {
+  sub: "1234567890",
+  name: "John Doe",
+  iat: Math.floor(Date.now() / 1000)
+};
 
-  describe('stripEmailFromUserContents', () => {
-    it('should remove @xyz.deere.com from email', () => {
-      const result = stripEmailFromUserContents('john.doe@xyz.deere.com');
-      expect(result).to.equal('john.doe');
-    });
+// Step 2: Base64Url Encoding Function
+function base64UrlEncode(obj) {
+  const json = typeof obj === 'string' ? obj : JSON.stringify(obj);
+  return Buffer.from(json)
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
 
-    it('should return unchanged string if pattern not matched', () => {
-      const result = stripEmailFromUserContents('jane.doe@gmail.com');
-      expect(result).to.equal('jane.doe@gmail.com');
-    });
-  });
+// Step 3: Create Unsigned Token
+const encodedHeader = base64UrlEncode(header);
+const encodedPayload = base64UrlEncode(payload);
+const message = `${encodedHeader}.${encodedPayload}`;
 
-  describe('extractUsernameFromToken', () => {
-    it('should decode token and return stripped username', () => {
-      const mockToken = { access_token: 'mock_access_token' };
-      const decoded = { sub: 'abc123@johndoe.deere.com' };
-      const decodeStub = sinon.stub(jwt_decode, 'default').returns(decoded);
+// Step 4: Sign the Token with HS256
+const secret = "your-256-bit-secret";
+const signature = crypto
+  .createHmac('sha256', secret)
+  .update(message)
+  .digest('base64')
+  .replace(/=/g, '')
+  .replace(/\+/g, '-')
+  .replace(/\//g, '_');
 
-      const result = extractUsernameFromToken(mockToken);
+// Step 5: Combine to Final JWT
+const jwt = `${message}.${signature}`;
 
-      expect(decodeStub.calledWith('mock_access_token')).to.be.true;
-      expect(result).to.equal('abc123');
+console.log("Generated JWT:\n", jwt);
 
-      decodeStub.restore();
-    });
-  });
+<!DOCTYPE html>
+<html>
+<head>
+  <title>JWT Generator</title>
+</head>
+<body>
+  <h2>Generated JWT:</h2>
+  <pre id="jwt"></pre>
 
-  describe('buildUserInfoFromTokenExchange', () => {
-    it('should build user info object from token', () => {
-      const mockToken = { access_token: 'token123' };
-      const expectedUser = 'johndoe';
+  <script>
+    // Encode object as base64url
+    function base64UrlEncode(obj) {
+      const json = JSON.stringify(obj);
+      const base64 = btoa(unescape(encodeURIComponent(json)));
+      return base64.replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+    }
 
-      const extractStub = sinon.stub().returns(expectedUser);
-      const uuidStub = sinon.stub(uuid, 'v4').returns('mock-guid');
+    // Create HMAC SHA-256 signature using Web Crypto API
+    async function createSignature(secret, message) {
+      const encoder = new TextEncoder();
+      const key = await crypto.subtle.importKey(
+        "raw",
+        encoder.encode(secret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"]
+      );
 
-      const original = extractUsernameFromToken;
-      // Monkey patch extractUsernameFromToken temporarily
-      const tempModule = await import('../../src/services/session-service.js');
-      tempModule.extractUsernameFromToken = extractStub;
+      const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
+      const bytes = new Uint8Array(signature);
+      const base64 = btoa(String.fromCharCode(...bytes));
+      return base64.replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+    }
 
-      const result = buildUserInfoFromTokenExchange(mockToken);
+    // Generate the JWT
+    (async () => {
+      const header = {
+        alg: "HS256",
+        typ: "JWT"
+      };
 
-      expect(result).to.deep.equal({
-        profile: {
-          sessionGuid: 'mock-guid',
-          id: expectedUser
-        },
-        token: 'token123'
-      });
+      const payload = {
+        sub: "1234567890",
+        name: "John Doe",
+        iat: Math.floor(Date.now() / 1000)
+      };
 
-      uuidStub.restore();
-    });
-  });
+      const secret = "your-256-bit-secret"; // Replace with your own secret
+      const encodedHeader = base64UrlEncode(header);
+      const encodedPayload = base64UrlEncode(payload);
+      const message = `${encodedHeader}.${encodedPayload}`;
+      const signature = await createSignature(secret, message);
 
-  describe('getUserInfoThroughTokenExchange', () => {
-    it('should call exchangeToken and return user info', async () => {
-      const mockDeviceSecret = 'secret';
-      const mockIdToken = 'id123';
-      const exchangeResponse = { access_token: 'abc' };
-
-      const exchangeStub = sinon.stub(oktaBroker, 'exchangeToken').resolves(exchangeResponse);
-      const buildStub = sinon.stub().returns({ profile: {}, token: 'abc' });
-
-      // Monkey patch
-      const tempModule = await import('../../src/services/session-service.js');
-      tempModule.buildUserInfoFromTokenExchange = buildStub;
-
-      const result = await getUserInfoThroughTokenExchange(mockDeviceSecret, mockIdToken);
-
-      expect(exchangeStub.calledWith(mockDeviceSecret, mockIdToken)).to.be.true;
-      expect(buildStub.calledWith(exchangeResponse)).to.be.true;
-      expect(result).to.deep.equal({ profile: {}, token: 'abc' });
-
-      exchangeStub.restore();
-    });
-  });
-
-});
+      const jwt = `${message}.${signature}`;
+      document.getElementById("jwt").innerText = jwt;
+    })();
+  </script>
+</body>
+</html>
