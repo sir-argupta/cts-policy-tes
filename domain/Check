@@ -1,1 +1,93 @@
+import { expect } from 'chai';
+import sinon from 'sinon';
+import jwt_decode from 'jwt-decode';
+import * as uuid from 'uuid';
+import * as oktaBroker from '../brokers/okta-broker'; // adjust path if needed
 
+import {
+  stripEmailFromUserContents,
+  extractUsernameFromToken,
+  buildUserInfoFromTokenExchange,
+  getUserInfoThroughTokenExchange
+} from '../../src/services/session-service.js'; // adjust path as necessary
+
+describe('session-service.js', () => {
+
+  describe('stripEmailFromUserContents', () => {
+    it('should remove @xyz.deere.com from email', () => {
+      const result = stripEmailFromUserContents('john.doe@xyz.deere.com');
+      expect(result).to.equal('john.doe');
+    });
+
+    it('should return unchanged string if pattern not matched', () => {
+      const result = stripEmailFromUserContents('jane.doe@gmail.com');
+      expect(result).to.equal('jane.doe@gmail.com');
+    });
+  });
+
+  describe('extractUsernameFromToken', () => {
+    it('should decode token and return stripped username', () => {
+      const mockToken = { access_token: 'mock_access_token' };
+      const decoded = { sub: 'abc123@johndoe.deere.com' };
+      const decodeStub = sinon.stub(jwt_decode, 'default').returns(decoded);
+
+      const result = extractUsernameFromToken(mockToken);
+
+      expect(decodeStub.calledWith('mock_access_token')).to.be.true;
+      expect(result).to.equal('abc123');
+
+      decodeStub.restore();
+    });
+  });
+
+  describe('buildUserInfoFromTokenExchange', () => {
+    it('should build user info object from token', () => {
+      const mockToken = { access_token: 'token123' };
+      const expectedUser = 'johndoe';
+
+      const extractStub = sinon.stub().returns(expectedUser);
+      const uuidStub = sinon.stub(uuid, 'v4').returns('mock-guid');
+
+      const original = extractUsernameFromToken;
+      // Monkey patch extractUsernameFromToken temporarily
+      const tempModule = await import('../../src/services/session-service.js');
+      tempModule.extractUsernameFromToken = extractStub;
+
+      const result = buildUserInfoFromTokenExchange(mockToken);
+
+      expect(result).to.deep.equal({
+        profile: {
+          sessionGuid: 'mock-guid',
+          id: expectedUser
+        },
+        token: 'token123'
+      });
+
+      uuidStub.restore();
+    });
+  });
+
+  describe('getUserInfoThroughTokenExchange', () => {
+    it('should call exchangeToken and return user info', async () => {
+      const mockDeviceSecret = 'secret';
+      const mockIdToken = 'id123';
+      const exchangeResponse = { access_token: 'abc' };
+
+      const exchangeStub = sinon.stub(oktaBroker, 'exchangeToken').resolves(exchangeResponse);
+      const buildStub = sinon.stub().returns({ profile: {}, token: 'abc' });
+
+      // Monkey patch
+      const tempModule = await import('../../src/services/session-service.js');
+      tempModule.buildUserInfoFromTokenExchange = buildStub;
+
+      const result = await getUserInfoThroughTokenExchange(mockDeviceSecret, mockIdToken);
+
+      expect(exchangeStub.calledWith(mockDeviceSecret, mockIdToken)).to.be.true;
+      expect(buildStub.calledWith(exchangeResponse)).to.be.true;
+      expect(result).to.deep.equal({ profile: {}, token: 'abc' });
+
+      exchangeStub.restore();
+    });
+  });
+
+});
