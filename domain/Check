@@ -13,3 +13,27 @@ function renderComponentWithoutPersistentHeader(props, storeProps) {
     }
   }
 }
+
+it('should set selected org, selected theme and handle theme when showPHInView is false', () => {
+  const selectedOrganizations = [{
+    id: chance.natural(),
+    ...chance.object()
+  }];
+  const organizationHierarchy = [chance.object()];
+  const theme = { name: 'cf' };
+
+  givenProps.session = {
+    ...givenProps.session,
+    showPHInView: false,
+    selectedOrganizations,
+    organizationHierarchy,
+    theme,
+    persistentHeaderConfig: chance.object() // still needed per your component guard
+  };
+
+  renderComponentWithoutPersistentHeader(givenProps, givenStoreProps);
+
+  expect(selectedOrgDux.setSelectedOrg.calledOnceWithExactly(selectedOrganizations[0], organizationHierarchy)).to.be.true;
+  expect(selectedOrgDux.setSelectedTheme.calledOnceWithExactly(theme)).to.be.true;
+  expect(wrapper.find(ThemeProvider).props().theme).to.equal(Themes.JDGreen);
+});
