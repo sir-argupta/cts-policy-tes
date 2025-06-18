@@ -8,19 +8,17 @@ it('should set selected org, selected theme and handle theme when showPHInView i
     name: 'cf'
   };
 
-  // Override props to simulate PH view disabled
-  givenProps.session.showPHInView = false;
-
-  renderComponent(givenProps, givenStoreProps);
-
-  // Simulate onData callback with mock values
-  renderedElement.props().onData({
+  // Set session values directly in props to simulate PHInView false path
+  givenProps.session = {
+    ...givenProps.session,
+    showPHInView: false,
     selectedOrganizations,
     organizationHierarchy,
     theme
-  });
+  };
 
-  // Assertions
+  renderComponent(givenProps, givenStoreProps);
+
   expect(selectedOrgDux.setSelectedOrg.calledOnceWithExactly(selectedOrganizations[0], organizationHierarchy)).to.be.true;
   expect(selectedOrgDux.setSelectedTheme.calledOnceWithExactly(theme)).to.be.true;
   expect(wrapper.find(ThemeProvider).props().theme).to.equal(Themes.JDGreen);
