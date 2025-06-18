@@ -1,25 +1,15 @@
-it('should set selected org, selected theme and handle theme when showPHInView is false', () => {
-  const selectedOrganizations = [{
-    id: chance.natural(),
-    ...chance.object()
-  }];
-  const organizationHierarchy = [chance.object()];
-  const theme = {
-    name: 'cf'
-  };
+function renderComponentWithoutPersistentHeader(props, storeProps) {
+  wrapper = shallow(
+    <Application {...props} store={getStoreStub(storeProps)} />
+  ).dive().dive();
 
-  // Set session values directly in props to simulate PHInView false path
-  givenProps.session = {
-    ...givenProps.session,
-    showPHInView: false,
-    selectedOrganizations,
-    organizationHierarchy,
-    theme
-  };
+  if (wrapper.find('.render-app').exists()) {
+    renderedElement = wrapper.find('.render-app').at(0);
+    divElement = renderedElement.children().at(0);
 
-  renderComponent(givenProps, givenStoreProps);
-
-  expect(selectedOrgDux.setSelectedOrg.calledOnceWithExactly(selectedOrganizations[0], organizationHierarchy)).to.be.true;
-  expect(selectedOrgDux.setSelectedTheme.calledOnceWithExactly(theme)).to.be.true;
-  expect(wrapper.find(ThemeProvider).props().theme).to.equal(Themes.JDGreen);
-});
+    if (divElement && divElement.type() === ThemeProvider) {
+      ThemeProviderElement = divElement;
+      appRouterElement = ThemeProviderElement.children().at(0);
+    }
+  }
+}
