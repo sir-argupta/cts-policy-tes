@@ -1,1 +1,102 @@
+You are a senior Python engineer. Generate an initial, working local MVP codebase for a “video voice translation” service. DO NOT include AWS, ECS, Fargate, queues, or cloud deployment. The goal is: run locally, get real outputs.
 
+### MVP Features (must work end-to-end)
+1) FastAPI server with:
+   - POST /jobs: accepts either
+     a) multipart upload of a video file OR
+     b) JSON body with a local file path (for quick testing)
+   - GET /jobs/{job_id}: returns job status + output paths
+2) A local async job runner (no Celery, no Redis): use Python’s built-in threading or asyncio background tasks.
+3) Pipeline stages:
+   - Extract audio from video using ffmpeg into WAV 16k mono
+   - Transcribe audio into timestamped segments (OpenAI OR Gemini; implement both behind an interface)
+   - Translate segments into a target language using Claude (Anthropic)
+   - Generate SRT subtitles from translated segments
+4) Store outputs in ./output/{job_id}/:
+   - audio.wav
+   - transcript.json (source segments)
+   - translated.json (translated segments)
+   - subtitles.srt
+5) Provide a CLI runner too:
+   - python -m app.cli --input <video_path> --target_lang <lang>
+   - prints output directory
+
+### Non-goals for this phase
+- No TTS generation required yet (only subtitles). But create a clean placeholder interface for TTS to add later.
+- No database. Use an in-memory job store + persisted JSON files.
+
+### Tech Requirements
+- Python 3.11+
+- fastapi, uvicorn, pydantic, python-multipart, httpx, tenacity
+- ffmpeg must be invoked via subprocess; include clear error messages if missing.
+- Strong typing (typing, dataclasses where helpful)
+- Clean modular structure with interfaces
+
+### Project Structure to generate
+app/
+  __init__.py
+  main.py                (FastAPI app)
+  api.py                 (routes)
+  jobs.py                (job manager: create, run, status)
+  pipeline/
+    __init__.py
+    extract_audio.py
+    asr.py                (ASR interface + OpenAIASR + GeminiASR implementations)
+    translate.py          (Claude translation client)
+    subtitles.py          (SRT generator)
+    models.py             (Pydantic models: Segment, Transcript, JobStatus)
+  clients/
+    __init__.py
+    openai_client.py      (transcribe call; minimal + robust)
+    gemini_client.py      (transcribe call; minimal + robust)
+    anthropic_client.py   (translate call; minimal + robust)
+  utils/
+    __init__.py
+    ffmpeg.py
+    files.py
+    logging.py
+  cli.py
+requirements.txt
+README.md
+
+### Configuration
+Use environment variables:
+- OPENAI_API_KEY (optional)
+- GEMINI_API_KEY (optional)
+- ANTHROPIC_API_KEY (required for translation)
+- ASR_PROVIDER = "openai" or "gemini" (default openai if key exists else gemini)
+- OUTPUT_DIR = "./output"
+
+### Implementation details (be concrete)
+- Define Segment model: start: float, end: float, text: str
+- transcript.json should contain list of segments
+- translated.json should contain list of segments with translated text
+- SRT generator:
+  - convert seconds to SRT timestamp format HH:MM:SS,mmm
+  - each segment becomes one subtitle block
+- Translation strategy:
+  - translate per segment but with a small rolling context window (previous 1-2 segments) to keep coherence
+  - enforce “spoken natural language” and “similar length” in prompt
+  - return ONLY translated text, no extra commentary
+- Job execution:
+  - When /jobs is called, create job_id (uuid4)
+  - Mark status: queued -> running -> succeeded/failed
+  - Persist errors into job record and error.txt in output folder
+- Must include robust retries for network calls (tenacity) and timeouts.
+
+### Provide working code
+Generate the complete code for all files listed, plus a README with:
+- how to install ffmpeg
+- how to run server
+- how to call API with curl
+- how to run CLI
+- expected outputs
+
+### Very important
+- Keep it minimal but real. No pseudo-code.
+- Make sure it actually runs locally.
+- If some provider-specific SDK is unavailable, implement calls using httpx REST requests.
+- Avoid huge dependencies.
+- Keep code readable and production-ish.
+
+Start by outputting a file tree, then each file content.
