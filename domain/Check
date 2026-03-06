@@ -1,1 +1,75 @@
+FROM python:3.11
 
+# Install system dependencies for OpenCV / FFmpeg
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install lambda runtime
+RUN pip install awslambdaric
+
+# Copy requirements
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy code
+COPY lambda_function.py .
+COPY src/ ./src/
+
+# Lambda entrypoint
+ENTRYPOINT ["python", "-m", "awslambdaric"]
+CMD ["lambda_function.lambda_handler"]
+
+
+
+
+
+
+
+
+# ---- Full Python Image (better codec support) ----
+FROM python:3.11-slim
+
+# ---- Prevent Python buffering ----
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# ---- Install system dependencies ----
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- Working directory ----
+WORKDIR /var/task
+
+# ---- Install Lambda Runtime Interface Client ----
+RUN pip install --no-cache-dir awslambdaric
+
+# ---- Copy requirements first (better caching) ----
+COPY requirements.txt .
+
+# ---- Install Python dependencies ----
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
+
+# ---- Copy application code ----
+COPY lambda_function.py .
+COPY src/ ./src/
+
+# ---- Lambda runtime entrypoint ----
+ENTRYPOINT ["python", "-m", "awslambdaric"]
+CMD ["lambda_function.lambda_handler"]
